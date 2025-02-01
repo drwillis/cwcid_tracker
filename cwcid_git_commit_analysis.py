@@ -173,7 +173,7 @@ def main(repo_dict_data, email_auth_dict, overleaf_auth_dict, email_notification
         repo_name = repo_dict["name"]
         repo_url = repo_dict["url"]
         repo_notify = repo_dict["notify"]
-        local_path = "./overleaf_repos/" + repo_name  # Specify a directory to clone the repository
+        local_path = "./git_repos/" + repo_name  # Specify a directory to clone the repository
         repo = clone_or_pull_repo(repo_url, repo_auth, local_path, username, token)
         if not repo:
             return
