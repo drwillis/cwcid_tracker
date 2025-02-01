@@ -217,7 +217,7 @@ def main(repo_dict_data, email_auth_dict, overleaf_auth_dict):
         email_routing_dict = {"TO": [notify_email], "CC": CC_list, "Reply-to": reply_to}
         now_datestr = now.strftime("%Y-%m-%d")
         email_subject = f"Daily Code and Writing Productivity Report for {now_datestr}"
-        #send_email(email_subject, email_body, email_routing_dict, email_auth_dict)
+        send_email(email_subject, email_body, email_routing_dict, email_auth_dict)
 
 
 if __name__ == "__main__":
