@@ -1,3 +1,4 @@
+import argparse
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -134,7 +135,7 @@ def display_statistics(statistics, group_by):
         print()
 
 
-def main(repo_dict_data, email_auth_dict, overleaf_auth_dict):
+def main(repo_dict_data, email_auth_dict, overleaf_auth_dict, email_notifications):
     # repo_url = "https://git.overleaf.com/your-repository-id"  # Replace with your Overleaf Git repository URL
     username = overleaf_auth_dict["username"]  # Replace with your Overleaf username or email
     token = overleaf_auth_dict["token"]  # Replace with your personal access token
@@ -201,26 +202,38 @@ def main(repo_dict_data, email_auth_dict, overleaf_auth_dict):
                 author_notifications[notify_email]["Reply-to"] = repo_notify["Reply-to"]
             # print(f"Preparing email to {notify_email} and CC: {author_notifications[notify_email]['CC']}")
 
-    for notify_email in author_notifications.keys():
-        # Send the statistics via email
-        email_body = author_notifications[notify_email]["body"]
-        # Remove duplicates using set
-        if "CC" in author_notifications[notify_email]:
-            CC_list = list(set(author_notifications[notify_email]["CC"]))
-        else:
-            CC_list = []
-        if "Reply-to" in author_notifications[notify_email]:
-            reply_to = author_notifications[notify_email]["Reply-to"]
-        else:
-            reply_to = None
-        print(f"Sending email to {notify_email} and CC: {CC_list} with Reply-to: {reply_to}")
-        email_routing_dict = {"TO": [notify_email], "CC": CC_list, "Reply-to": reply_to}
-        now_datestr = now.strftime("%Y-%m-%d")
-        email_subject = f"Daily Code and Writing Productivity Report for {now_datestr}"
-        send_email(email_subject, email_body, email_routing_dict, email_auth_dict)
+    if email_notifications == True:
+        for notify_email in author_notifications.keys():
+            # Send the statistics via email
+            email_body = author_notifications[notify_email]["body"]
+            # Remove duplicates using set
+            if "CC" in author_notifications[notify_email]:
+                CC_list = list(set(author_notifications[notify_email]["CC"]))
+            else:
+                CC_list = []
+            if "Reply-to" in author_notifications[notify_email]:
+                reply_to = author_notifications[notify_email]["Reply-to"]
+            else:
+                reply_to = None
+            print(f"Sending email to {notify_email} and CC: {CC_list} with Reply-to: {reply_to}")
+            email_routing_dict = {"TO": [notify_email], "CC": CC_list, "Reply-to": reply_to}
+            now_datestr = now.strftime("%Y-%m-%d")
+            email_subject = f"Daily Code and Writing Productivity Report for {now_datestr}"
+            send_email(email_subject, email_body, email_routing_dict, email_auth_dict)
 
 
 if __name__ == "__main__":
     from cwcid_default_auth_credentials import email_auth_dict,  overleaf_auth_dict
     from cwcid_default_repository_data import repo_dict_data
-    main(repo_dict_data, email_auth_dict, overleaf_auth_dict)
+
+    # Create an ArgumentParser object
+    parser = argparse.ArgumentParser(description='A script to monitor git repository changes and notify contributors.')
+
+    # Add arguments
+    parser.add_argument('-n', '--notify', action='store_true',
+                        help='Send report notifications to contributors via email')
+    # Parse the arguments
+    args = parser.parse_args()
+
+    notify = args.notify
+    main(repo_dict_data, email_auth_dict, overleaf_auth_dict, args.notify)
