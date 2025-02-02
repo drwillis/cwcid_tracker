@@ -1,3 +1,5 @@
+# See the link below to create a Google app password needed to use their TLS email SMTP server
+# https://knowledge.workspace.google.com/kb/how-to-create-app-passwords-000009237
 # Example:
 #   smtp_server = "smtp.gmail.com"
 #   smtp_port = 587
