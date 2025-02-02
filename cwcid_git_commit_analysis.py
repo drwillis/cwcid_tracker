@@ -1,11 +1,11 @@
 import argparse
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from collections import defaultdict
 from datetime import datetime, timedelta
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 import git
 import os
+import smtplib
 
 
 def clone_or_pull_repo(repo_url, repo_auth, local_path, username, token):
@@ -224,8 +224,11 @@ if __name__ == "__main__":
         }
     ]
 
-    git_author_notifications = track_git_changes(repo_dict_data, overleaf_auth_dict, time_interval_dicts)
-    global_author_notification = git_author_notifications
+    global_author_notification = {}
+    for collaborative_data_target in repo_dict_data:
+        one_element_repo_dict_data = [collaborative_data_target]
+        item_author_notifications = track_git_changes(one_element_repo_dict_data, overleaf_auth_dict, time_interval_dicts)
+        global_author_notification.update(item_author_notifications)
 
     if args.notify:
         for notify_email in global_author_notification.keys():
