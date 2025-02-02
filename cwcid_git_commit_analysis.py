@@ -135,10 +135,71 @@ def display_statistics(statistics, group_by):
         print()
 
 
-def main(repo_dict_data, email_auth_dict, overleaf_auth_dict, email_notifications):
+def track_git_changes(repo_dict_data, overleaf_auth_dict, time_interval_dicts, folder = "./git_repos/"):
     # repo_url = "https://git.overleaf.com/your-repository-id"  # Replace with your Overleaf Git repository URL
     username = overleaf_auth_dict["username"]  # Replace with your Overleaf username or email
     token = overleaf_auth_dict["token"]  # Replace with your personal access token
+
+    # Get the current date
+    now = datetime.now()
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+
+    author_notifications = {}
+    # Clone or pull the repository
+    for repo_dict in repo_dict_data:
+        repo_type = repo_dict["type"]
+        repo_auth = repo_dict["auth"]
+        repo_name = repo_dict["name"]
+        repo_url = repo_dict["url"]
+        repo_notify = repo_dict["notify"]
+        local_path = folder + repo_name  # Specify a directory to clone the repository
+        repo = clone_or_pull_repo(repo_url, repo_auth, local_path, username, token)
+        if not repo:
+            return
+
+        # Compute statistics for the past week
+        repo_stats = f"Repository \"{repo_name}\":\n"
+        for time_dict in time_interval_dicts:
+            start_time = time_dict["Time Start"]
+            period_str = time_dict["Period"]
+            statistics = compute_statistics(repo, start_time, now)
+            start_time_str = start_time.strftime("%Y-%m-%d %H:%M:%S")
+            repo_stats += f"{period_str} Statistics from {start_time_str} to {now_str}:\n\n"
+            # Format the statistics
+            time_duration_stats = format_statistics(statistics)
+            if period_str == "Daily":
+                print(time_duration_stats)
+            repo_stats += time_duration_stats
+
+        for notify_email in repo_notify["TO"]:
+            if notify_email not in author_notifications:
+                author_notifications[notify_email] = {}
+                author_notifications[notify_email]["body"] = ""
+                author_notifications[notify_email]["CC"] = []
+                # author_notifications[notify_email]["Reply-to"] = None
+            author_notifications[notify_email]["body"] += repo_stats
+            if "CC" in repo_notify:
+                author_notifications[notify_email]["CC"] += repo_notify["CC"]
+            if "Reply-to" in repo_notify:
+                author_notifications[notify_email]["Reply-to"] = repo_notify["Reply-to"]
+            # print(f"Preparing email to {notify_email} and CC: {author_notifications[notify_email]['CC']}")
+
+    return author_notifications
+
+if __name__ == "__main__":
+    from cwcid_default_auth_credentials import email_auth_dict,  overleaf_auth_dict
+    from cwcid_default_repository_data import repo_dict_data
+
+    # Create an ArgumentParser object
+    parser = argparse.ArgumentParser(description='A script to monitor git repository changes and notify contributors.')
+
+    # Add arguments
+    parser.add_argument('-n', '--notify', action='store_true',
+                        help='Send report notifications to contributors via email')
+    # Parse the arguments
+    args = parser.parse_args()
+
+    notify = args.notify
 
     # Get the current date
     now = datetime.now()
@@ -163,56 +224,20 @@ def main(repo_dict_data, email_auth_dict, overleaf_auth_dict, email_notification
         }
     ]
 
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    git_author_notifications = track_git_changes(repo_dict_data, overleaf_auth_dict, time_interval_dicts)
+    global_author_notification = git_author_notifications
 
-    author_notifications = {}
-    # Clone or pull the repository
-    for repo_dict in repo_dict_data:
-        repo_type = repo_dict["type"]
-        repo_auth = repo_dict["auth"]
-        repo_name = repo_dict["name"]
-        repo_url = repo_dict["url"]
-        repo_notify = repo_dict["notify"]
-        local_path = "./git_repos/" + repo_name  # Specify a directory to clone the repository
-        repo = clone_or_pull_repo(repo_url, repo_auth, local_path, username, token)
-        if not repo:
-            return
-
-        # Compute statistics for the past week
-        repo_stats = f"Repository \"{repo_name}\":\n"
-        for time_dict in time_interval_dicts:
-            start_time = time_dict["Time Start"]
-            period_str = time_dict["Period"]
-            statistics = compute_statistics(repo, start_time, now)
-            start_time_str = start_time.strftime("%Y-%m-%d %H:%M:%S")
-            repo_stats += f"{period_str} Statistics from {start_time_str} to {now_str}:\n\n"
-            # Format the statistics
-            repo_stats += format_statistics(statistics)
-
-        for notify_email in repo_notify["TO"]:
-            if notify_email not in author_notifications:
-                author_notifications[notify_email] = {}
-                author_notifications[notify_email]["body"] = ""
-                author_notifications[notify_email]["CC"] = []
-                # author_notifications[notify_email]["Reply-to"] = None
-            author_notifications[notify_email]["body"] += repo_stats
-            if "CC" in repo_notify:
-                author_notifications[notify_email]["CC"] += repo_notify["CC"]
-            if "Reply-to" in repo_notify:
-                author_notifications[notify_email]["Reply-to"] = repo_notify["Reply-to"]
-            # print(f"Preparing email to {notify_email} and CC: {author_notifications[notify_email]['CC']}")
-
-    if email_notifications == True:
-        for notify_email in author_notifications.keys():
+    if args.notify:
+        for notify_email in global_author_notification.keys():
             # Send the statistics via email
-            email_body = author_notifications[notify_email]["body"]
+            email_body = global_author_notification[notify_email]["body"]
             # Remove duplicates using set
-            if "CC" in author_notifications[notify_email]:
-                CC_list = list(set(author_notifications[notify_email]["CC"]))
+            if "CC" in global_author_notification[notify_email]:
+                CC_list = list(set(global_author_notification[notify_email]["CC"]))
             else:
                 CC_list = []
-            if "Reply-to" in author_notifications[notify_email]:
-                reply_to = author_notifications[notify_email]["Reply-to"]
+            if "Reply-to" in global_author_notification[notify_email]:
+                reply_to = global_author_notification[notify_email]["Reply-to"]
             else:
                 reply_to = None
             print(f"Sending email to {notify_email} and CC: {CC_list} with Reply-to: {reply_to}")
@@ -220,20 +245,3 @@ def main(repo_dict_data, email_auth_dict, overleaf_auth_dict, email_notification
             now_datestr = now.strftime("%Y-%m-%d")
             email_subject = f"Daily Code and Writing Productivity Report for {now_datestr}"
             send_email(email_subject, email_body, email_routing_dict, email_auth_dict)
-
-
-if __name__ == "__main__":
-    from cwcid_default_auth_credentials import email_auth_dict,  overleaf_auth_dict
-    from cwcid_default_repository_data import repo_dict_data
-
-    # Create an ArgumentParser object
-    parser = argparse.ArgumentParser(description='A script to monitor git repository changes and notify contributors.')
-
-    # Add arguments
-    parser.add_argument('-n', '--notify', action='store_true',
-                        help='Send report notifications to contributors via email')
-    # Parse the arguments
-    args = parser.parse_args()
-
-    notify = args.notify
-    main(repo_dict_data, email_auth_dict, overleaf_auth_dict, args.notify)
