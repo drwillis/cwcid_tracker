@@ -1,11 +1,15 @@
 # import os
+from collections import defaultdict
 import time
 import re
 import datetime
+import matplotlib.pyplot as plt
 import pandas as pd
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import urllib.request
+import smtplib
+from email.message import EmailMessage
 
 # Set up Google Docs API authentication
 SCOPES = ['https://www.googleapis.com/auth/documents.readonly',
@@ -23,6 +27,7 @@ from cwcid_default_auth_credentials import google_auth_servicekey_dict
 credentials_info = google_auth_servicekey_dict
 credentials = service_account.Credentials.from_service_account_info(credentials_info, scopes=SCOPES)
 # credentials = service_account.Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
+print("🔑 Authenticating with OAuth 2.0...")
 docs_service = build('docs', 'v1', credentials=credentials)
 drive_service_v2 = build('drive', 'v2', credentials=credentials)
 drive_service_v3 = build('drive', 'v3', credentials=credentials)
@@ -110,22 +115,6 @@ def categorize_changes(changes):
     return stats
 
 
-# 🔹 Get Google Docs content
-def get_document_text(doc_id):
-    try:
-        document = docs_service.documents().get(documentId=doc_id).execute()
-        content = []
-        for element in document.get("body", {}).get("content", []):
-            if "paragraph" in element:
-                for text_run in element["paragraph"].get("elements", []):
-                    if "textRun" in text_run:
-                        content.append(text_run["textRun"]["content"])
-        return "".join(content).strip()
-    except Exception as e:
-        print(f"❌ Error fetching document text: {e}")
-        return ""
-
-
 # 🔹 Fetch document content at a specific revision
 def get_revision_text(doc_id, revision_id):
     try:
@@ -175,32 +164,98 @@ def count_words(text):
 
 # 🔹 Track word contributions per author
 def compute_word_contributions(doc_id, revisions):
-    word_contributions = {}
+    contributions = defaultdict(lambda: defaultdict(int))  # {author: {date: words_added}}
+    # prev_text = get_revision_text(doc_id, revisions[0]['Revision ID'])
+    if not revisions:
+        return contributions
+    prev_text = ""  # Stores the previous revision text
+    for rev in revisions:  # Process from second revision onward
+        id = rev['Revision ID']
+        modified_time = rev['Timestamp']
+        author = rev['Email']
+        date = datetime.datetime.strptime(modified_time, "%Y-%m-%dT%H:%M:%S.%fZ").date()
 
-    prev_text = get_revision_text(doc_id, revisions[0]['Revision ID'])
-    if prev_text:
-        prev_word_count = count_words(prev_text)
-    else:
-        prev_word_count = 0
-
-    for rev in revisions[1:]:  # Process from second revision onward
         time.sleep(WAIT_TIME)
         current_text = get_revision_text(doc_id, rev['Revision ID'])
+        if not current_text:
+            continue
+
+        # Compute word difference
+        prev_word_count = count_words(prev_text)
         current_word_count = count_words(current_text)
 
         words_added = current_word_count - prev_word_count
-        author = rev['Email']
 
-        if author not in word_contributions:
-            word_contributions[author] = 0
-
-        word_contributions[author] += max(0, words_added)  # Ignore deletions for now
+        contributions[author][date] += words_added
+        # if author not in word_contributions:
+        #     word_contributions[author] = 0
+        # word_contributions[author] += max(0, words_added)  # Ignore deletions for now
 
         # Update previous state
         prev_text = current_text
-        prev_word_count = current_word_count
+        # prev_word_count = current_word_count
 
-    return word_contributions
+    return contributions
+
+
+# 🔹 Generate Time-Series Bar Chart
+def generate_chart(contributions):
+    dates = sorted({date for author in contributions for date in contributions[author]})
+    authors = list(contributions.keys())
+
+    # Create dataset for each author
+    data = {author: [contributions[author].get(date, 0) for date in dates] for author in authors}
+
+    # Plot
+    plt.figure(figsize=(12, 6))
+    bottom = [0] * len(dates)
+
+    for author in authors:
+        plt.bar(dates, data[author], bottom=bottom, label=author)
+        bottom = [bottom[i] + data[author][i] for i in range(len(dates))]
+
+    plt.xlabel("Date")
+    plt.ylabel("Words Added")
+    plt.title("Word Contributions Over Time")
+    plt.legend()
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+
+    chart_path = "word_contributions.png"
+    plt.savefig(chart_path)
+    print(f"📊 Chart saved: {chart_path}")
+
+    return chart_path
+
+
+def send_email_with_chart(image_path):
+    # 🔹 Email Configuration
+    SMTP_SERVER = "smtp.gmail.com"
+    SMTP_PORT = 587
+    SENDER_EMAIL = "your_email@gmail.com"
+    SENDER_PASSWORD = "your_app_password"
+    RECIPIENT_EMAIL = "recipient_email@gmail.com"
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = "Google Doc Word Contribution Report"
+        msg["From"] = SENDER_EMAIL
+        msg["To"] = RECIPIENT_EMAIL
+        msg.set_content("Attached is the Google Doc word contribution report with daily statistics.")
+
+        # Attach the image
+        with open(image_path, "rb") as img:
+            msg.add_attachment(img.read(), maintype="image", subtype="png", filename="word_contributions.png")
+
+        # Send Email
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.send_message(msg)
+
+        print(f"📧 Email sent successfully to {RECIPIENT_EMAIL}")
+
+    except Exception as e:
+        print(f"❌ Error sending email: {e}")
 
 
 # Generate and save report
@@ -210,24 +265,13 @@ def generate_report(changes, stats):
     df_stats.index.name = 'Author'
     df_stats.reset_index(inplace=True)
 
-    df_changes.to_csv('detailed_change_log.csv', index=False)
-    df_stats.to_csv('summary_report.csv', index=False)
+    # df_changes.to_csv('detailed_change_log.csv', index=False)
+    # df_stats.to_csv('summary_report.csv', index=False)
 
     print(f"📊 Detailed Change Log saved as `detailed_change_log.csv`")
+    print(df_changes)
     print(f"📊 Summary Report saved as `summary_report.csv`")
     print(df_stats)
-
-
-# Generate and save report
-def generate_report_v2(changes, word_contributions):
-    df_changes = pd.DataFrame(changes)
-    df_words = pd.DataFrame(list(word_contributions.items()), columns=['Author', 'Words Contributed'])
-
-    df_changes.to_csv('detailed_change_log.csv', index=False)
-    df_words.to_csv('word_contributions.csv', index=False)
-
-    print(f"📊 Detailed Change Log saved as `detailed_change_log.csv`")
-    print(f"📊 Word Contributions saved as `word_contributions.csv`")
 
 
 # Execute tracking and report generation
@@ -241,6 +285,13 @@ if __name__ == '__main__':
         print(f"✅ Processing {len(changes)} changes...")
         print(f"✅ Processing {len(changes)} revisions...")
         word_contributions = compute_word_contributions(DOCUMENT_ID, changes)
-        generate_report(changes, word_contributions)
+
+        if word_contributions:
+            print("📊 Generating word contribution chart...")
+            chart_path = generate_chart(word_contributions)
+
+            # print("📧 Sending email with attachment...")
+            # send_email_with_chart(chart_path)
+        # generate_report(changes, word_contributions)
         # stats = categorize_changes(changes)
         # generate_report(changes, stats)
