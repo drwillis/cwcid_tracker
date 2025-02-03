@@ -228,23 +228,29 @@ if __name__ == "__main__":
     for collaborative_data_target in repo_dict_data:
         one_element_repo_dict_data = [collaborative_data_target]
         item_author_notifications = track_git_changes(one_element_repo_dict_data, overleaf_auth_dict, time_interval_dicts)
-        global_author_notification.update(item_author_notifications)
+        for notify_email in item_author_notifications:
+            if notify_email in global_author_notification:
+                global_author_notification[notify_email]['body'] += item_author_notifications[notify_email]['body']
+            else:
+                global_author_notification.update(item_author_notifications)
 
-    if args.notify:
-        for notify_email in global_author_notification.keys():
-            # Send the statistics via email
-            email_body = global_author_notification[notify_email]["body"]
-            # Remove duplicates using set
-            if "CC" in global_author_notification[notify_email]:
-                CC_list = list(set(global_author_notification[notify_email]["CC"]))
-            else:
-                CC_list = []
-            if "Reply-to" in global_author_notification[notify_email]:
-                reply_to = global_author_notification[notify_email]["Reply-to"]
-            else:
-                reply_to = None
+    for notify_email in global_author_notification.keys():
+        # Send the statistics via email
+        email_body = global_author_notification[notify_email]["body"]
+        # Remove duplicates using set
+        if "CC" in global_author_notification[notify_email]:
+            CC_list = list(set(global_author_notification[notify_email]["CC"]))
+        else:
+            CC_list = []
+        if "Reply-to" in global_author_notification[notify_email]:
+            reply_to = global_author_notification[notify_email]["Reply-to"]
+        else:
+            reply_to = None
+        if args.notify:
             print(f"Sending email to {notify_email} and CC: {CC_list} with Reply-to: {reply_to}")
             email_routing_dict = {"TO": [notify_email], "CC": CC_list, "Reply-to": reply_to}
             now_datestr = now.strftime("%Y-%m-%d")
             email_subject = f"Daily Code and Writing Productivity Report for {now_datestr}"
             send_email(email_subject, email_body, email_routing_dict, email_auth_dict)
+        else:
+            print(f"** REPORT FOR AUTHOR {notify_email} **:\n {email_body}")
