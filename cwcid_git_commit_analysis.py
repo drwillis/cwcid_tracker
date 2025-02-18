@@ -152,6 +152,7 @@ def plot_change_history(repo_data, image_folder="./images"):
             daily_deletions[commit_date][author] -= commit['deletions']
     # Sort dates in ascending order
     sorted_dates = sorted(set(daily_insertions.keys()).union(set(daily_deletions.keys())))
+    sorted_date_strs = [str(date) for date in sorted_dates]
 
     # Get unique authors
     authors = sorted(set(author for contributions in daily_insertions.values() for author in contributions))
@@ -176,12 +177,12 @@ def plot_change_history(repo_data, image_folder="./images"):
     # print(sorted_dates)
     for author in authors:
         # Plot insertions
-        ax.bar(sorted_dates, insertions_data[author], bottom=bottom_insertions, label=f'{author} (Insertions)',
+        ax.bar(sorted_date_strs, insertions_data[author], bottom=bottom_insertions, label=f'{author} (Insertions)',
                color=colors[author])
         bottom_insertions = [bottom_insertions[i] + insertions_data[author][i] for i in range(len(sorted_dates))]
 
         # Plot deletions (use a darker shade of the same color)
-        ax.bar(sorted_dates, deletions_data[author], bottom=bottom_deletions, label=f'{author} (Deletions)',
+        ax.bar(sorted_date_strs, deletions_data[author], bottom=bottom_deletions, label=f'{author} (Deletions)',
                color=mcolors.to_rgba(colors[author], 0.6))
         bottom_deletions = [bottom_deletions[i] + deletions_data[author][i] for i in range(len(sorted_dates))]
 
@@ -205,7 +206,7 @@ def plot_change_history(repo_data, image_folder="./images"):
     plt.savefig(output_file)
     repo_data["activity_plot"] = [output_file]
     # print(repo_data["activity_plot"])
-    # plt.show()
+    plt.show()
 
 
 def track_git_changes(repo_dict_data, overleaf_auth_dict, folder="./git_repos/"):
@@ -247,26 +248,6 @@ if __name__ == "__main__":
 
     # Get the current date
     now = datetime.now()
-
-    # day_start = now - timedelta(days=1)
-    # week_start = now - timedelta(days=7)
-    # month_start = now - timedelta(days=30)
-    # year_start = now - timedelta(days=365)
-    # time_interval_dicts = [
-    #     {
-    #         "Time Start": day_start,
-    #         "Period": "Daily"
-    #     }, {
-    #         "Time Start": week_start,
-    #         "Period": "Weekly"
-    #     }, {
-    #         "Time Start": month_start,
-    #         "Period": "Monthly"
-    #     }, {
-    #         "Time Start": year_start,
-    #         "Period": "Yearly"
-    #     }
-    # ]
 
     track_git_changes(repo_dict_data, overleaf_auth_dict)
 
