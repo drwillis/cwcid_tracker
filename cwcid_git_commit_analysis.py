@@ -206,7 +206,7 @@ def plot_change_history(repo_data, image_folder="./images"):
     plt.savefig(output_file)
     repo_data["activity_plot"] = [output_file]
     # print(repo_data["activity_plot"])
-    plt.show()
+    # plt.show()
 
 
 def track_git_changes(repo_dict_data, overleaf_auth_dict, folder="./git_repos/"):
