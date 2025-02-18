@@ -1,6 +1,7 @@
 import argparse
 from datetime import datetime
 from cwcid_git_commit_analysis import track_git_changes, plot_change_history, send_email
+import os
 
 if __name__ == "__main__":
     from cwcid_default_auth_credentials import email_auth_dict, overleaf_auth_dict
@@ -24,7 +25,7 @@ if __name__ == "__main__":
 
     # collect statistics on each repository
     for repo_dict in repo_dict_data:
-        print(repo_dict)
+        # print(repo_dict)
         if "stats" in repo_dict:
             repo_stats = repo_dict["stats"]
             plot_change_history(repo_dict)
@@ -69,7 +70,7 @@ if __name__ == "__main__":
     for repo_dict in repo_dict_data:
         if "activity_plot" in repo_dict:
             try:
-                os.remove(repo_dict["activity_plot"])
+                os.remove(repo_dict["activity_plot"][0])
                 print(f"Temporary image for email attachments {repo_dict['activity_plot']} deleted successfully.")
             except FileNotFoundError:
                 print("File not found.")

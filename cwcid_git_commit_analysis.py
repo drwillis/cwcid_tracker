@@ -173,7 +173,7 @@ def plot_change_history(repo_data, image_folder="./images"):
     fig, ax = plt.subplots(figsize=(8, 5))
     bottom_insertions = [0] * len(sorted_dates)
     bottom_deletions = [0] * len(sorted_dates)
-    print(sorted_dates)
+    # print(sorted_dates)
     for author in authors:
         # Plot insertions
         ax.bar(sorted_dates, insertions_data[author], bottom=bottom_insertions, label=f'{author} (Insertions)',
@@ -204,7 +204,7 @@ def plot_change_history(repo_data, image_folder="./images"):
     output_file = os.path.join(image_folder, f'repo_stats_{random_filename}.png')
     plt.savefig(output_file)
     repo_data["activity_plot"] = [output_file]
-    print(repo_data["activity_plot"])
+    # print(repo_data["activity_plot"])
     # plt.show()
 
 
@@ -272,7 +272,7 @@ if __name__ == "__main__":
 
     # collect statistics on each repository
     for repo_dict in repo_dict_data:
-        print(repo_dict)
+        # print(repo_dict)
         if "stats" in repo_dict:
             repo_stats = repo_dict["stats"]
             plot_change_history(repo_dict)
@@ -317,7 +317,7 @@ if __name__ == "__main__":
     for repo_dict in repo_dict_data:
         if "activity_plot" in repo_dict:
             try:
-                os.remove(repo_dict["activity_plot"])
+                os.remove(repo_dict["activity_plot"][0])
                 print(f"Temporary image for email attachments {repo_dict['activity_plot']} deleted successfully.")
             except FileNotFoundError:
                 print("File not found.")
