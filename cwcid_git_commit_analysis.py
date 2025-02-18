@@ -1,6 +1,6 @@
 import argparse
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
