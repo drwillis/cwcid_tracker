@@ -1,11 +1,27 @@
 import argparse
 from collections import defaultdict
 from datetime import datetime, timedelta
+from email import encoders
+from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import git
+import matplotlib
+matplotlib.use('TkAgg', force=True)
+# matplotlib.use('Agg', force=True)
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import os
+from pathlib import Path
+import random
 import smtplib
+import string
+
+
+def generate_random_filename(length=10):
+    """Generates a random filename of specified length."""
+    letters = string.ascii_letters + string.digits
+    return ''.join(random.choice(letters) for i in range(length))
 
 
 def clone_or_pull_repo(repo_url, repo_auth, local_path, username, token):
@@ -40,32 +56,31 @@ def clone_or_pull_repo(repo_url, repo_auth, local_path, username, token):
         return None
 
 
-def compute_statistics(repo, start_date, end_date):
+def gather_statistics(repo):  # , start_date, end_date):
     """
     Compute statistics aggregated by username.
     """
-    statistics = defaultdict(lambda: {"line_changes": 0, "commits": []})
-
+    statistics = {}
     # Iterate through all commits
     for commit in repo.iter_commits():
         commit_date = datetime.fromtimestamp(commit.committed_date)
-        if start_date <= commit_date <= end_date:
-            author = commit.author.name if commit.author else "Unknown"
-            stats = commit.stats.total
-
-            # Update statistics
-            statistics[author]["line_changes"] += stats["insertions"] + stats["deletions"]
-            statistics[author]["commits"].append({
-                "date": commit_date.strftime("%Y-%m-%d %H:%M:%S"),
-                "message": commit.message.strip(),
-                "insertions": stats["insertions"],
-                "deletions": stats["deletions"],
-            })
+        author = commit.author.name if commit.author else "Unknown"
+        stats = commit.stats.total
+        # Update statistics
+        if author not in statistics:
+            statistics[author] = {"line_changes": 0, "commits": []}
+        statistics[author]["line_changes"] += stats["insertions"] + stats["deletions"]
+        statistics[author]["commits"].append({
+            "date": commit_date.strftime("%Y-%m-%d %H:%M:%S"),
+            "message": commit.message.strip(),
+            "insertions": stats["insertions"],
+            "deletions": stats["deletions"],
+        })
 
     return statistics
 
 
-def send_email(subject, body, notify, email_auth_dict):
+def send_email(subject, body, notify, email_auth_dict, attachments):
     """
     Send an email with the given subject and body to the specified recipients.
     """
@@ -73,7 +88,7 @@ def send_email(subject, body, notify, email_auth_dict):
     smtp_port = email_auth_dict["smtp_port"]
     sender_email = email_auth_dict["sender_email"]
     sender_password = email_auth_dict["sender_password"]
-
+    # notify["TO"] = ["arwillis@charlotte.edu"]
     # Prepare email
     msg = MIMEMultipart()
     msg["From"] = sender_email
@@ -83,9 +98,15 @@ def send_email(subject, body, notify, email_auth_dict):
         msg["Reply-to"] = ", ".join(notify["Reply-to"])
     msg["Subject"] = subject
 
-    # Add the email body
-    # print(f"email body: {body}")
-    msg.attach(MIMEText(body, "plain"))
+    msg.attach(MIMEText(body))
+
+    for path in attachments:
+        part = MIMEBase('application', "octet-stream")
+        with open(path, 'rb') as file:
+            part.set_payload(file.read())
+        encoders.encode_base64(part)
+        part.add_header('Content-Disposition', 'attachment; filename={}'.format(Path(path).name))
+        msg.attach(part)
 
     # Send email
     try:
@@ -118,76 +139,99 @@ def format_statistics(statistics):
     return email_body
 
 
-def display_statistics(statistics, group_by):
-    """
-    Display statistics grouped by time period.
-    """
-    print(f"\nStatistics grouped by {group_by.capitalize()}:\n")
-    for time_group, authors in statistics.items():
-        print(f"{group_by.capitalize()} Group: {time_group}")
-        for author, data in authors.items():
-            print(f"  Author: {author}")
-            print(f"    Total Line Changes: {data['line_changes']}")
-            print(f"    Commits:")
-            for commit in data["commits"]:
-                print(f"      - Date: {commit['date']}, Message: {commit['message']}")
-                print(f"        Insertions: {commit['insertions']}, Deletions: {commit['deletions']}")
-        print()
+def plot_change_history(repo_data, image_folder="./images"):
+    stats = repo_data["stats"]
+    # Aggregate contributions per day per author (separate insertions & deletions)
+    daily_insertions = defaultdict(lambda: defaultdict(int))
+    daily_deletions = defaultdict(lambda: defaultdict(int))
+
+    for author, data in stats.items():
+        for commit in data['commits']:
+            commit_date = datetime.strptime(commit['date'], '%Y-%m-%d %H:%M:%S').date()
+            daily_insertions[commit_date][author] += commit['insertions']
+            daily_deletions[commit_date][author] -= commit['deletions']
+    # Sort dates in ascending order
+    sorted_dates = sorted(set(daily_insertions.keys()).union(set(daily_deletions.keys())))
+
+    # Get unique authors
+    authors = sorted(set(author for contributions in daily_insertions.values() for author in contributions))
+
+    # Assign colors dynamically
+    color_palette = list(mcolors.TABLEAU_COLORS.values())  # Use Tableau colors for better contrast
+    colors = {author: color_palette[i % len(color_palette)] for i, author in enumerate(authors)}
+
+    # Prepare data for stacked bars
+    insertions_data = {author: [] for author in authors}
+    deletions_data = {author: [] for author in authors}
+
+    for date in sorted_dates:
+        for author in authors:
+            insertions_data[author].append(daily_insertions[date].get(author, 0))
+            deletions_data[author].append(daily_deletions[date].get(author, 0))
+
+    # Plot stacked bar chart
+    fig, ax = plt.subplots(figsize=(8, 5))
+    bottom_insertions = [0] * len(sorted_dates)
+    bottom_deletions = [0] * len(sorted_dates)
+    print(sorted_dates)
+    for author in authors:
+        # Plot insertions
+        ax.bar(sorted_dates, insertions_data[author], bottom=bottom_insertions, label=f'{author} (Insertions)',
+               color=colors[author])
+        bottom_insertions = [bottom_insertions[i] + insertions_data[author][i] for i in range(len(sorted_dates))]
+
+        # Plot deletions (use a darker shade of the same color)
+        ax.bar(sorted_dates, deletions_data[author], bottom=bottom_deletions, label=f'{author} (Deletions)',
+               color=mcolors.to_rgba(colors[author], 0.6))
+        bottom_deletions = [bottom_deletions[i] + deletions_data[author][i] for i in range(len(sorted_dates))]
+
+    # Formatting the plot
+    plt.xlabel('Date')
+    plt.ylabel('Total Contributions')
+    plt.title(f'Repository {repo_data["name"]}\nDaily Insertions and Deletions per Author')
+    plt.xticks(rotation=45)
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+
+    # Optimized legend placement (outside plot)
+    plt.legend(title="Contributions", bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
+
+    # Adjust layout to fit legend
+    plt.tight_layout()
+    # Save the plot as a PNG file
+    random_filename = generate_random_filename(15)
+    if not os.path.isdir(image_folder):
+        os.makedirs(image_folder)
+    output_file = os.path.join(image_folder, f'repo_stats_{random_filename}.png')
+    plt.savefig(output_file)
+    repo_data["activity_plot"] = [output_file]
+    print(repo_data["activity_plot"])
+    # plt.show()
 
 
-def track_git_changes(repo_dict_data, overleaf_auth_dict, time_interval_dicts, folder = "./git_repos/"):
+def track_git_changes(repo_dict_data, overleaf_auth_dict, folder="./git_repos/"):
     # repo_url = "https://git.overleaf.com/your-repository-id"  # Replace with your Overleaf Git repository URL
     username = overleaf_auth_dict["username"]  # Replace with your Overleaf username or email
     token = overleaf_auth_dict["token"]  # Replace with your personal access token
 
-    # Get the current date
-    now = datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-
-    author_notifications = {}
+    statistics = {}
     # Clone or pull the repository
     for repo_dict in repo_dict_data:
-        repo_type = repo_dict["type"]
+        # repo_type = repo_dict["type"]
+        # repo_notify = repo_dict["notify"]
         repo_auth = repo_dict["auth"]
         repo_name = repo_dict["name"]
         repo_url = repo_dict["url"]
-        repo_notify = repo_dict["notify"]
         local_path = folder + repo_name  # Specify a directory to clone the repository
         repo = clone_or_pull_repo(repo_url, repo_auth, local_path, username, token)
         if not repo:
             return
-
         # Compute statistics for the past week
-        repo_stats = f"Repository \"{repo_name}\":\n"
-        for time_dict in time_interval_dicts:
-            start_time = time_dict["Time Start"]
-            period_str = time_dict["Period"]
-            statistics = compute_statistics(repo, start_time, now)
-            start_time_str = start_time.strftime("%Y-%m-%d %H:%M:%S")
-            repo_stats += f"{period_str} Statistics from {start_time_str} to {now_str}:\n\n"
-            # Format the statistics
-            time_duration_stats = format_statistics(statistics)
-            if period_str == "Daily":
-                print(time_duration_stats)
-            repo_stats += time_duration_stats
+        repo_dict["stats"] = gather_statistics(repo)
+    return statistics
 
-        for notify_email in repo_notify["TO"]:
-            if notify_email not in author_notifications:
-                author_notifications[notify_email] = {}
-                author_notifications[notify_email]["body"] = ""
-                author_notifications[notify_email]["CC"] = []
-                # author_notifications[notify_email]["Reply-to"] = None
-            author_notifications[notify_email]["body"] += repo_stats
-            if "CC" in repo_notify:
-                author_notifications[notify_email]["CC"] += repo_notify["CC"]
-            if "Reply-to" in repo_notify:
-                author_notifications[notify_email]["Reply-to"] = repo_notify["Reply-to"]
-            # print(f"Preparing email to {notify_email} and CC: {author_notifications[notify_email]['CC']}")
-
-    return author_notifications
 
 if __name__ == "__main__":
-    from cwcid_default_auth_credentials import email_auth_dict,  overleaf_auth_dict
+    from cwcid_default_auth_credentials import email_auth_dict, overleaf_auth_dict
     from cwcid_default_repository_data import repo_dict_data
 
     # Create an ArgumentParser object
@@ -204,53 +248,80 @@ if __name__ == "__main__":
     # Get the current date
     now = datetime.now()
 
-    day_start = now - timedelta(days=1)
-    week_start = now - timedelta(days=7)
-    month_start = now - timedelta(days=30)
-    year_start = now - timedelta(days=365)
-    time_interval_dicts = [
-        {
-            "Time Start": day_start,
-            "Period": "Daily"
-        }, {
-            "Time Start": week_start,
-            "Period": "Weekly"
-        }, {
-            "Time Start": month_start,
-            "Period": "Monthly"
-        }, {
-            "Time Start": year_start,
-            "Period": "Yearly"
-        }
-    ]
+    # day_start = now - timedelta(days=1)
+    # week_start = now - timedelta(days=7)
+    # month_start = now - timedelta(days=30)
+    # year_start = now - timedelta(days=365)
+    # time_interval_dicts = [
+    #     {
+    #         "Time Start": day_start,
+    #         "Period": "Daily"
+    #     }, {
+    #         "Time Start": week_start,
+    #         "Period": "Weekly"
+    #     }, {
+    #         "Time Start": month_start,
+    #         "Period": "Monthly"
+    #     }, {
+    #         "Time Start": year_start,
+    #         "Period": "Yearly"
+    #     }
+    # ]
 
-    global_author_notification = {}
-    for collaborative_data_target in repo_dict_data:
-        one_element_repo_dict_data = [collaborative_data_target]
-        item_author_notifications = track_git_changes(one_element_repo_dict_data, overleaf_auth_dict, time_interval_dicts)
-        for notify_email in item_author_notifications:
-            if notify_email in global_author_notification:
-                global_author_notification[notify_email]['body'] += item_author_notifications[notify_email]['body']
-            else:
-                global_author_notification.update(item_author_notifications)
+    track_git_changes(repo_dict_data, overleaf_auth_dict)
 
-    for notify_email in global_author_notification.keys():
+    # collect statistics on each repository
+    for repo_dict in repo_dict_data:
+        print(repo_dict)
+        if "stats" in repo_dict:
+            repo_stats = repo_dict["stats"]
+            plot_change_history(repo_dict)
+
+    # print(repo_dict_data)
+    author_notifications = {}
+    email_body = "Report statistics are included in attachment plots."
+    for repo_dict in repo_dict_data:
+        repo_notify = repo_dict["notify"]
+        for notify_email in repo_notify["TO"]:
+            if notify_email not in author_notifications:
+                author_notifications[notify_email] = {"body": "", "CC": [], "Reply-to": [], "attachments": []}
+            # email_body = format_statistics(repo_dict["stats"])
+            # updated_body = author_notifications[notify_email]["body"] + email_body
+            updated_body = email_body
+            updated_CC = list(set(author_notifications[notify_email]["CC"] + repo_notify["CC"]))
+            updated_ReplyTo = list(set(author_notifications[notify_email]["Reply-to"] + repo_notify["Reply-to"]))
+            updated_attachments = list(set(author_notifications[notify_email]["attachments"]
+                                           + repo_dict["activity_plot"]))
+            author_notifications[notify_email] = {"body": f"{updated_body}", "CC": updated_CC,
+                                                  "Reply-to": updated_ReplyTo, "attachments": updated_attachments}
+            print(f"Repo {repo_dict['name']}: Preparing email to {notify_email}"
+                  + f" and CC: {author_notifications[notify_email]['CC']}")
+
+    for notify_email in author_notifications.keys():
         # Send the statistics via email
-        email_body = global_author_notification[notify_email]["body"]
+        email_body = author_notifications[notify_email]["body"]
         # Remove duplicates using set
-        if "CC" in global_author_notification[notify_email]:
-            CC_list = list(set(global_author_notification[notify_email]["CC"]))
-        else:
-            CC_list = []
-        if "Reply-to" in global_author_notification[notify_email]:
-            reply_to = global_author_notification[notify_email]["Reply-to"]
-        else:
-            reply_to = None
+        CC_list = author_notifications[notify_email]["CC"]
+        reply_to_list = author_notifications[notify_email]["Reply-to"]
+        attachments = author_notifications[notify_email]["attachments"]
         if args.notify:
-            print(f"Sending email to {notify_email} and CC: {CC_list} with Reply-to: {reply_to}")
-            email_routing_dict = {"TO": [notify_email], "CC": CC_list, "Reply-to": reply_to}
+            print(f"Sending email to {notify_email} and CC: {CC_list} with Reply-to: {reply_to_list}")
+            email_routing_dict = {"TO": [notify_email], "CC": CC_list, "Reply-to": reply_to_list}
             now_datestr = now.strftime("%Y-%m-%d")
             email_subject = f"Daily Code and Writing Productivity Report for {now_datestr}"
-            send_email(email_subject, email_body, email_routing_dict, email_auth_dict)
+            send_email(email_subject, email_body, email_routing_dict, email_auth_dict, attachments)
         else:
             print(f"** REPORT FOR AUTHOR {notify_email} **:\n {email_body}")
+
+    # Remove temporary image files created for email attachments
+    for repo_dict in repo_dict_data:
+        if "activity_plot" in repo_dict:
+            try:
+                os.remove(repo_dict["activity_plot"])
+                print(f"Temporary image for email attachments {repo_dict['activity_plot']} deleted successfully.")
+            except FileNotFoundError:
+                print("File not found.")
+            except PermissionError:
+                print("You don't have permission to delete this file.")
+            except Exception as e:
+                print("An error occurred:", e)
