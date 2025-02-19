@@ -251,6 +251,9 @@ if __name__ == "__main__":
 
     track_git_changes(repo_dict_data, overleaf_auth_dict)
 
+    if not notify:
+        exit(0)
+
     # collect statistics on each repository
     for repo_dict in repo_dict_data:
         # print(repo_dict)
